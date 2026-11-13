@@ -1,0 +1,16 @@
+category,question,A,B,C,D,answer
+Python,Which keyword defines a function?,func,def,function,define,B
+Python,Which type is immutable?,list,dict,set,tuple,D
+Python,"What is len(""Hello"")?",4,5,6,0,B
+Python,Which operator calculates a remainder?,/,//,%,**,C
+Python,Which keyword handles exceptions?,except,catch,error,handle,A
+Mathematics,What is 12 multiplied by 3?,15,24,36,48,C
+Mathematics,What is the square root of 81?,7,8,9,10,C
+Mathematics,What is 25 percent of 200?,25,50,75,100,B
+Mathematics,What is 7 squared?,14,21,42,49,D
+Mathematics,What is 18 divided by 6?,2,3,4,6,B
+General Knowledge,Which planet is called the Red Planet?,Earth,Mars,Jupiter,Venus,B
+General Knowledge,How many days are in a leap year?,364,365,366,367,C
+General Knowledge,Which ocean is the largest?,Atlantic,Indian,Arctic,Pacific,D
+General Knowledge,What is the chemical symbol for water?,CO2,O2,H2O,NaCl,C
+General Knowledge,How many sides does a triangle have?,2,3,4,5,B

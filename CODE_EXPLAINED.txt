@@ -1,0 +1,274 @@
+SIMPLE CODE EXPLANATION
+
+All ten requested features were present in the original code. The earlier
+feature table described what your console output had demonstrated, not which
+features were missing. This revision uses ordinary loops and if/elif statements
+instead of compact expressions wherever practical. It also rejects multi-letter
+answers such as AB, which must not be accepted as a single answer.
+
+HOW TO READ THE CODE
+import: makes a standard Python library available.
+Path: locates the program folder and TXT files.
+csv: reads and writes comma-separated records inside the TXT files.
+random.sample: chooses questions randomly, with no repeats in one attempt.
+datetime: supplies the date/time for a saved attempt.
+An assignment (=) stores a value; == compares two values.
+A list [] stores several records. A dictionary {} stores named fields.
+row['name'] reads the value belonging to a dictionary key.
+for visits each item; while repeats until break stops it.
+if/elif/else selects the block matching a condition.
+Indentation shows which statements belong to each block.
+def defines a function; return sends its answer back to the caller.
+class groups operations; self refers to the current ExaminationSystem object.
+__init__ runs when an ExaminationSystem object is created.
+None means that no value has been found or supplied.
+with open(...) closes the file automatically when its block finishes.
+'r' is the default reading mode; 'w' creates a file; 'a' appends records.
+encoding='utf-8' supports text characters; newline='' lets csv handle line ends.
+raise reports an error; try/except catches an error and displays a message.
+f'...' inserts values written inside braces into a message.
+:.2f displays a number with two digits after the decimal point.
++= 1 increases a counter by one. len(...) counts items.
+int converts text to a whole number; float converts it to a decimal number.
+strip removes surrounding spaces; upper makes letters uppercase.
+title normalizes category names; isalnum checks letters and numbers.
+enumerate(items, 1) supplies display numbers starting from one.
+List positions start from zero, so category choice 1 uses index 0.
+continue starts the next loop cycle; break leaves the loop.
+
+PROGRAM FLOW
+1. Create the system object; create missing student/results files.
+2. Show the menu repeatedly until the user chooses Exit.
+3. Run the chosen method, catching file and value errors.
+4. During an exam, validate the student, category and question count.
+5. Randomly sample that category's questions; validate each answer.
+6. Count correct, wrong and skipped answers; calculate and save the result.
+7. Read saved attempts to produce the result summary.
+
+FEATURES AND THE METHODS TO STUDY
+Registration: register - checks the ID and saves a student dictionary.
+Question bank: questions and add_question - validate/load/save questions.
+Categories: take_exam - collects unique categories and sorts their names.
+Random selection: take_exam - random.sample(pool, count).
+Exam attempt: take_exam - loops through selected questions and their options.
+Answer validation: ask - accepts exactly one allowed answer/menu character.
+Negative marking: take_exam - score = correct * 4 - wrong.
+Scoring: take_exam - maximum is count * 4; percentage is score/maximum*100.
+Result generation: take_exam - displays totals and saves a result dictionary.
+Result summary: summary - filters attempts by ID and averages percentages.
+
+HELPER FUNCTIONS
+read_records checks the header and each record before returning a list of
+dictionaries. append_record checks the existing file then writes one record.
+ask repeats the prompt until the input is valid.
+
+LINE-NUMBERED READING COPY
+The source below is a reading aid. Run exam_system.py, not this TXT file.
+Blank lines separate sections; comments explain the nearby operation.
+
+001: from pathlib import Path
+002: import csv
+003: import random
+004: from datetime import datetime
+005: 
+006: # All TXT files are stored in the same folder as this program.
+007: BASE = Path(__file__).resolve().parent
+008: QUESTION_FIELDS = ['category', 'question', 'A', 'B', 'C', 'D', 'answer']
+009: STUDENT_FIELDS = ['student_id', 'name']
+010: RESULT_FIELDS = ['date', 'student_id', 'category', 'correct', 'wrong',
+011:                  'skipped', 'score', 'maximum', 'percentage']
+012: 
+013: 
+014: def read_records(filename, fields):
+015:     """Read a CSV-formatted TXT file and check its structure."""
+016:     with (BASE / filename).open(encoding='utf-8', newline='') as file:
+017:         reader = csv.DictReader(file)
+018:         if reader.fieldnames != fields:
+019:             raise ValueError(f'{filename}: incorrect column headings.')
+020:         rows = list(reader)
+021:     for row in rows:  # Check each saved record separately.
+022:         if set(row) != set(fields):
+023:             raise ValueError(f'{filename}: extra or missing columns.')
+024:         for value in row.values():
+025:             if value is None:
+026:                 raise ValueError(f'{filename}: incomplete record.')
+027:     return rows
+028: 
+029: 
+030: def append_record(filename, fields, row):
+031:     """Append one record; validate the existing file before changing it."""
+032:     read_records(filename, fields)
+033:     with (BASE / filename).open('a', encoding='utf-8', newline='') as file:
+034:         csv.DictWriter(file, fieldnames=fields).writerow(row)
+035: 
+036: 
+037: def ask(prompt, choices=None):
+038:     while True:
+039:         value = input(prompt).strip()
+040:         if not value:  # Reject empty input.
+041:             print('Please enter a value.')
+042:             continue
+043:         if choices is None:  # Names and question text keep their original case.
+044:             return value
+045:         value = value.upper()  # Accept lowercase menu and answer letters.
+046:         if len(value) == 1 and value in choices:
+047:             return value
+048:         print('Invalid input. Please try again.')
+049: 
+050: 
+051: class ExaminationSystem:  # A class groups the exam's related operations.
+052:     def __init__(self):
+053:         # Create writable record files if missing; questions.txt is supplied.
+054:         for filename, fields in [('students.txt', STUDENT_FIELDS),
+055:                                  ('results.txt', RESULT_FIELDS)]:
+056:             if not (BASE / filename).exists():
+057:                 with (BASE / filename).open('w', encoding='utf-8', newline='') as file:
+058:                     csv.DictWriter(file, fieldnames=fields).writeheader()
+059: 
+060:     def register(self):
+061:         students = read_records('students.txt', STUDENT_FIELDS)
+062:         student_id = ask('Student ID (letters/numbers): ').upper()
+063:         if not student_id.isalnum():
+064:             raise ValueError('Student ID must contain only letters and numbers.')
+065:         for student in students:
+066:             if student['student_id'].upper() == student_id:
+067:                 raise ValueError('That ID is already registered.')
+068:         name = ask('Full name: ')
+069:         append_record('students.txt', STUDENT_FIELDS,
+070:                       {'student_id': student_id, 'name': name})
+071:         print(f'Registered {name} with ID {student_id}.')
+072: 
+073:     def questions(self):
+074:         rows = read_records('questions.txt', QUESTION_FIELDS)
+075:         if not rows:
+076:             raise ValueError('The question bank is empty.')
+077:         for row in rows:
+078:             for value in row.values():
+079:                 if not value.strip():
+080:                     raise ValueError('Question bank contains an empty field.')
+081:             if row['answer'] not in 'ABCD' or len(row['answer']) != 1:
+082:                 raise ValueError('Question bank answers must be A, B, C or D.')
+083:         return rows
+084: 
+085:     def add_question(self):
+086:         row = {'category': ask('Category: ').title(),
+087:                'question': ask('Question: ')}
+088:         for option in 'ABCD':
+089:             row[option] = ask(f'Option {option}: ')
+090:         row['answer'] = ask('Correct answer (A/B/C/D): ', 'ABCD')
+091:         append_record('questions.txt', QUESTION_FIELDS, row)
+092:         print('Question saved.')
+093: 
+094:     def take_exam(self):
+095:         student_id = ask('Registered student ID: ').upper()
+096:         students = read_records('students.txt', STUDENT_FIELDS)
+097:         student = None  # No matching student has been found yet.
+098:         for record in students:
+099:             if record['student_id'].upper() == student_id:
+100:                 student = record
+101:                 break
+102:         if student is None:
+103:             raise ValueError('Student not found. Register first.')
+104:         questions = self.questions()
+105:         categories = []
+106:         for question in questions:
+107:             if question['category'] not in categories:
+108:                 categories.append(question['category'])
+109:         categories.sort()  # Keep category numbers in alphabetical order.
+110:         for number, category in enumerate(categories, 1):
+111:             print(f'{number}. {category}')
+112:         choice = int(ask('Category number: '))
+113:         if not 1 <= choice <= len(categories):
+114:             raise ValueError('Category number is out of range.')
+115:         category = categories[choice - 1]  # List positions start at zero.
+116:         pool = []  # Collect questions from the chosen category only.
+117:         for question in questions:
+118:             if question['category'] == category:
+119:                 pool.append(question)
+120:         count = int(ask(f'Number of questions (1-{len(pool)}): '))
+121:         if not 1 <= count <= len(pool):
+122:             raise ValueError('Question count is out of range.')
+123:         selected = random.sample(pool, count)  # Random choice without repeats.
+124:         correct = wrong = skipped = 0
+125:         review = []
+126:         print('\nRules: correct +4, wrong -1, skip 0. Enter S to skip.')
+127:         for number, question in enumerate(selected, 1):
+128:             print(f'\n{number}. {question["question"]}')
+129:             for option in 'ABCD':
+130:                 print(f'  {option}. {question[option]}')
+131:             answer = ask('Answer (A/B/C/D/S): ', 'ABCDS')
+132:             if answer == 'S':
+133:                 skipped += 1
+134:             elif answer == question['answer']:
+135:                 correct += 1
+136:             else:
+137:                 wrong += 1
+138:             review.append((question, answer))
+139:         score = correct * 4 - wrong  # Add 4 per correct answer; subtract 1 per wrong.
+140:         percentage = score / (count * 4) * 100
+141:         result = {  # Each key matches a column in results.txt.
+142:             'date': datetime.now().isoformat(timespec='seconds'),
+143:             'student_id': student_id, 'category': category,
+144:             'correct': correct, 'wrong': wrong, 'skipped': skipped,
+145:             'score': score, 'maximum': count * 4,
+146:             'percentage': f'{percentage:.2f}'
+147:         }
+148:         print(f'\nRESULT: {student["name"]} ({student_id}) | {category}')
+149:         print(f'Correct: {correct} | Wrong: {wrong} | Skipped: {skipped}')
+150:         print(f'Score: {score}/{count * 4} | Percentage: {percentage:.2f}%')
+151:         for number, (question, answer) in enumerate(review, 1):
+152:             print(f'{number}. Your answer: {answer}; correct: {question["answer"]}')
+153:         try:
+154:             append_record('results.txt', RESULT_FIELDS, result)
+155:             print('Result saved to results.txt.')
+156:         except (OSError, ValueError, csv.Error) as error:
+157:             print(f'Result displayed but NOT saved: {error}')
+158: 
+159:     def summary(self):
+160:         student_id = ask('Student ID for result history: ').upper()
+161:         rows = read_records('results.txt', RESULT_FIELDS)
+162:         results = []
+163:         for row in rows:
+164:             if row['student_id'] == student_id:
+165:                 results.append(row)
+166:         if not results:
+167:             print('No saved results for this ID.')
+168:             return
+169:         for row in results:
+170:             print(f'{row["date"]} | {row["category"]} | '
+171:                   f'{row["score"]}/{row["maximum"]} | {row["percentage"]}%')
+172:         total = 0
+173:         for row in results:
+174:             total += float(row['percentage'])
+175:         average = total / len(results)  # Each attempt has equal weight.
+176:         print(f'Attempts: {len(results)} | Average percentage: {average:.2f}%')
+177: 
+178:     def run(self):
+179:         while True:
+180:             print('\nONLINE EXAMINATION MANAGEMENT SYSTEM')
+181:             print('1. Register student\n2. Take exam\n3. Result history')
+182:             print('4. Add question\n5. Exit')
+183:             choice = ask('Choose (1-5): ', '12345')
+184:             if choice == '5':
+185:                 print('Goodbye!')
+186:                 break
+187:             try:
+188:                 if choice == '1':
+189:                     self.register()
+190:                 elif choice == '2':
+191:                     self.take_exam()
+192:                 elif choice == '3':
+193:                     self.summary()
+194:                 elif choice == '4':
+195:                     self.add_question()
+196:             except (OSError, ValueError, csv.Error) as error:
+197:                 print(f'Error: {error}')
+198: 
+199: 
+200: if __name__ == '__main__':
+201:     try:
+202:         ExaminationSystem().run()
+203:     except (EOFError, KeyboardInterrupt):
+204:         print('\nSession ended. Completed saved records remain available.')
+205:     except OSError as error:
+206:         print(f'Cannot open record files: {error}')

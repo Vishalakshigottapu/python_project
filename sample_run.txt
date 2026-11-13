@@ -1,0 +1,78 @@
+
+ONLINE EXAMINATION MANAGEMENT SYSTEM
+1. Register student
+2. Take exam
+3. Result history
+4. Add question
+5. Exit
+Choose (1-5): 1
+Student ID (letters/numbers): S001
+Full name: Asha Kumar
+Registered Asha Kumar with ID S001.
+
+ONLINE EXAMINATION MANAGEMENT SYSTEM
+1. Register student
+2. Take exam
+3. Result history
+4. Add question
+5. Exit
+Choose (1-5): 2
+Registered student ID: S001
+1. General Knowledge
+2. Mathematics
+3. Python
+Category number: 3
+Number of questions (1-5): 3
+
+Rules: correct +4, wrong -1, skip 0. Enter S to skip.
+
+1. Which keyword defines a function?
+  A. func
+  B. def
+  C. function
+  D. define
+Answer (A/B/C/D/S): Z
+Invalid input. Please try again.
+Answer (A/B/C/D/S): B
+
+2. Which type is immutable?
+  A. list
+  B. dict
+  C. set
+  D. tuple
+Answer (A/B/C/D/S): A
+
+3. What is len("Hello")?
+  A. 4
+  B. 5
+  C. 6
+  D. 0
+Answer (A/B/C/D/S): S
+
+RESULT: Asha Kumar (S001) | Python
+Correct: 1 | Wrong: 1 | Skipped: 1
+Score: 3/12 | Percentage: 25.00%
+1. Your answer: B; correct: B
+2. Your answer: A; correct: D
+3. Your answer: S; correct: B
+Result saved to results.txt.
+
+ONLINE EXAMINATION MANAGEMENT SYSTEM
+1. Register student
+2. Take exam
+3. Result history
+4. Add question
+5. Exit
+Choose (1-5): 3
+Student ID for result history: S001
+2026-11-02T18:38:46 | Python | 3/12 | 25.00%
+Attempts: 1 | Average percentage: 25.00%
+
+ONLINE EXAMINATION MANAGEMENT SYSTEM
+1. Register student
+2. Take exam
+3. Result history
+4. Add question
+5. Exit
+Choose (1-5): 5
+Goodbye!

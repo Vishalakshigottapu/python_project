@@ -1,128 +1,181 @@
 from pathlib import Path
-import csv
-import random
+import csv, math, os, random, tempfile
 from datetime import datetime
-
-# All TXT files are stored in the same folder as this program.
 BASE = Path(__file__).resolve().parent
 QUESTION_FIELDS = ['category', 'question', 'A', 'B', 'C', 'D', 'answer']
 STUDENT_FIELDS = ['student_id', 'name']
 RESULT_FIELDS = ['date', 'student_id', 'category', 'correct', 'wrong',
                  'skipped', 'score', 'maximum', 'percentage']
-
-
-def read_records(filename, fields):
-    """Read a CSV-formatted TXT file and check its structure."""
-    with (BASE / filename).open(encoding='utf-8', newline='') as file:
-        reader = csv.DictReader(file)
-        if reader.fieldnames != fields:
-            raise ValueError(f'{filename}: incorrect column headings.')
-        rows = list(reader)
-    for row in rows:  # Check each saved record separately.
-        if set(row) != set(fields):
-            raise ValueError(f'{filename}: extra or missing columns.')
-        for value in row.values():
-            if value is None:
-                raise ValueError(f'{filename}: incomplete record.')
+def normalize_id(value):
+    student_id = value.strip().upper()
+    if not student_id or not student_id.isascii() or not student_id.isalnum():
+        raise ValueError('Student ID must contain only English letters (A-Z) and numbers (0-9).')
+    return student_id
+def normalize_text(value):
+    return ' '.join(value.split()).casefold()
+def validate_student_records(rows, filename):
+    seen_ids = set()
+    for line, row in enumerate(rows, 2):
+        try:
+            sid = normalize_id(row['student_id'])
+            if not row['name'].strip():
+                raise ValueError('student name cannot be blank')
+            if sid in seen_ids:
+                raise ValueError(f'duplicate student ID: {sid}')
+            seen_ids.add(sid)
+            row['student_id'], row['name'] = sid, row['name'].strip()
+        except ValueError as error:
+            raise ValueError(f'{filename}: line {line}: {error}') from error
     return rows
-
-
+def question_duplicate_key(row):
+    return tuple(normalize_text(row[key]) for key in
+                 ('category', 'question', 'A', 'B', 'C', 'D'))
+def validate_question_records(rows, filename):
+    seen = set()
+    for line, row in enumerate(rows, 2):
+        if any(not value.strip() for value in row.values()):
+            raise ValueError(f'{filename}: line {line}: empty question field.')
+        answer = row['answer'].strip().upper()
+        if len(answer) != 1 or answer not in 'ABCD':
+            raise ValueError(f'{filename}: line {line}: answer must be A, B, C or D.')
+        row['category'], row['answer'] = ' '.join(row['category'].split()).title(), answer
+        key = question_duplicate_key(row)
+        if key in seen:
+            raise ValueError(f'{filename}: line {line}: duplicate question content.')
+        seen.add(key)
+    return rows
+def validate_result_records(rows, filename):
+    for line, row in enumerate(rows, 2):
+        try:
+            sid = normalize_id(row['student_id'])
+            if not row['category'].strip(): raise ValueError('category cannot be blank')
+            datetime.fromisoformat(row['date'])
+            correct, wrong, skipped = (int(row[k]) for k in ('correct', 'wrong', 'skipped')); score, maximum = int(row['score']), int(row['maximum'])
+            percentage = float(row['percentage'])
+            if min(correct, wrong, skipped) < 0:
+                raise ValueError('answer counts cannot be negative')
+            attempted = correct + wrong + skipped
+            if attempted <= 0:
+                raise ValueError('attempted question count must be positive')
+            if maximum != 4 * attempted:
+                raise ValueError('maximum must equal 4 multiplied by attempted count')
+            if score != 4 * correct - wrong:
+                raise ValueError('score does not match the marking rules')
+            if not math.isfinite(percentage):
+                raise ValueError('percentage must be a finite number')
+            expected = score / maximum * 100
+            if not math.isclose(percentage, expected, rel_tol=0, abs_tol=0.011):
+                raise ValueError('percentage does not match score and maximum')
+            row['student_id'] = sid
+        except (ValueError, OverflowError) as error:
+            raise ValueError(f'{filename}: line {line}: invalid result: {error}') from error
+    return rows
+def read_records(filename, fields):
+    path = BASE / filename
+    try:
+        with path.open('r', encoding='utf-8', newline='') as file:
+            reader = csv.DictReader(file)
+            if reader.fieldnames != fields:
+                raise ValueError(f'{filename}: incorrect column headings.')
+            rows = list(reader)
+    except csv.Error as error:
+        raise ValueError(f'{filename}: invalid CSV data: {error}') from error
+    for line, row in enumerate(rows, 2):
+        if set(row) != set(fields):
+            raise ValueError(f'{filename}: line {line}: extra or missing columns.')
+        if any(value is None for value in row.values()):
+            raise ValueError(f'{filename}: line {line}: incomplete record.')
+    validators = {'students.txt': validate_student_records,
+                  'questions.txt': validate_question_records,
+                  'results.txt': validate_result_records}
+    return validators[filename](rows, filename) if filename in validators else rows
+def write_records_atomically(filename, fields, rows):
+    path, temporary_path = BASE / filename, None
+    try:
+        with tempfile.NamedTemporaryFile('w', encoding='utf-8', newline='',
+                dir=BASE, prefix=f'.{path.name}.', suffix='.tmp', delete=False) as file:
+            temporary_path = file.name
+            writer = csv.DictWriter(file, fieldnames=fields)
+            writer.writeheader(); writer.writerows(rows)
+            file.flush(); os.fsync(file.fileno())
+        os.replace(temporary_path, path); temporary_path = None
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.remove(temporary_path)
 def append_record(filename, fields, row):
-    """Append one record; validate the existing file before changing it."""
-    read_records(filename, fields)
-    with (BASE / filename).open('a', encoding='utf-8', newline='') as file:
-        csv.DictWriter(file, fieldnames=fields).writerow(row)
-
-
+    rows = read_records(filename, fields)
+    updated = rows + [{field: str(row[field]) for field in fields}]
+    validators = {'students.txt': validate_student_records,
+                  'questions.txt': validate_question_records,
+                  'results.txt': validate_result_records}
+    if filename in validators:
+        validators[filename](updated, filename)
+    write_records_atomically(filename, fields, updated)
 def ask(prompt, choices=None):
     while True:
         value = input(prompt).strip()
-        if not value:  # Reject empty input.
+        if not value:
             print('Please enter a value.')
             continue
-        if choices is None:  # Names and question text keep their original case.
+        if choices is None:
             return value
-        value = value.upper()  # Accept lowercase menu and answer letters.
+        value = value.upper()
         if len(value) == 1 and value in choices:
             return value
         print('Invalid input. Please try again.')
-
-
-class ExaminationSystem:  # A class groups the exam's related operations.
+class ExaminationSystem:
     def __init__(self):
-        # Create writable record files if missing; questions.txt is supplied.
         for filename, fields in [('students.txt', STUDENT_FIELDS),
                                  ('results.txt', RESULT_FIELDS)]:
             if not (BASE / filename).exists():
-                with (BASE / filename).open('w', encoding='utf-8', newline='') as file:
-                    csv.DictWriter(file, fieldnames=fields).writeheader()
-
+                write_records_atomically(filename, fields, [])
     def register(self):
         students = read_records('students.txt', STUDENT_FIELDS)
-        student_id = ask('Student ID (letters/numbers): ').upper()
-        if not student_id.isalnum():
-            raise ValueError('Student ID must contain only letters and numbers.')
-        for student in students:
-            if student['student_id'].upper() == student_id:
-                raise ValueError('That ID is already registered.')
+        sid = normalize_id(ask('Student ID (letters/numbers): '))
+        if any(item['student_id'] == sid for item in students):
+            raise ValueError('That ID is already registered.')
         name = ask('Full name: ')
-        append_record('students.txt', STUDENT_FIELDS,
-                      {'student_id': student_id, 'name': name})
-        print(f'Registered {name} with ID {student_id}.')
-
+        append_record('students.txt', STUDENT_FIELDS, {'student_id': sid, 'name': name})
+        print(f'Registered {name} with ID {sid}.')
     def questions(self):
         rows = read_records('questions.txt', QUESTION_FIELDS)
         if not rows:
             raise ValueError('The question bank is empty.')
-        for row in rows:
-            for value in row.values():
-                if not value.strip():
-                    raise ValueError('Question bank contains an empty field.')
-            if row['answer'] not in 'ABCD' or len(row['answer']) != 1:
-                raise ValueError('Question bank answers must be A, B, C or D.')
         return rows
-
     def add_question(self):
-        row = {'category': ask('Category: ').title(),
+        row = {'category': ' '.join(ask('Category: ').split()).title(),
                'question': ask('Question: ')}
         for option in 'ABCD':
             row[option] = ask(f'Option {option}: ')
         row['answer'] = ask('Correct answer (A/B/C/D): ', 'ABCD')
         append_record('questions.txt', QUESTION_FIELDS, row)
         print('Question saved.')
-
     def take_exam(self):
-        student_id = ask('Registered student ID: ').upper()
+        sid = normalize_id(ask('Registered student ID: '))
         students = read_records('students.txt', STUDENT_FIELDS)
-        student = None  # No matching student has been found yet.
-        for record in students:
-            if record['student_id'].upper() == student_id:
-                student = record
-                break
+        student = next((item for item in students if item['student_id'] == sid), None)
         if student is None:
             raise ValueError('Student not found. Register first.')
-        questions = self.questions()
-        categories = []
-        for question in questions:
-            if question['category'] not in categories:
-                categories.append(question['category'])
-        categories.sort()  # Keep category numbers in alphabetical order.
-        for number, category in enumerate(categories, 1):
-            print(f'{number}. {category}')
-        choice = int(ask('Category number: '))
+        all_questions = self.questions()
+        category_names = {normalize_text(q['category']): q['category'] for q in all_questions}; categories = sorted(category_names.values(), key=str.casefold)
+        print('\nAvailable categories:')
+        for number, name in enumerate(categories, 1):
+            print(f'{number}. {name}')
+        try:
+            choice = int(ask('Category number: '))
+        except ValueError as error:
+            raise ValueError('Enter a valid category number.') from error
         if not 1 <= choice <= len(categories):
             raise ValueError('Category number is out of range.')
-        category = categories[choice - 1]  # List positions start at zero.
-        pool = []  # Collect questions from the chosen category only.
-        for question in questions:
-            if question['category'] == category:
-                pool.append(question)
-        count = int(ask(f'Number of questions (1-{len(pool)}): '))
+        category = categories[choice - 1]
+        pool = [q for q in all_questions if normalize_text(q['category']) == normalize_text(category)]
+        try:
+            count = int(ask(f'Number of questions (1-{len(pool)}): '))
+        except ValueError as error:
+            raise ValueError('Enter a valid question count.') from error
         if not 1 <= count <= len(pool):
             raise ValueError('Question count is out of range.')
-        selected = random.sample(pool, count)  # Random choice without repeats.
-        correct = wrong = skipped = 0
-        review = []
+        selected = random.sample(pool, count); correct = wrong = skipped = 0; review = []
         print('\nRules: correct +4, wrong -1, skip 0. Enter S to skip.')
         for number, question in enumerate(selected, 1):
             print(f'\n{number}. {question["question"]}')
@@ -136,45 +189,38 @@ class ExaminationSystem:  # A class groups the exam's related operations.
             else:
                 wrong += 1
             review.append((question, answer))
-        score = correct * 4 - wrong  # Add 4 per correct answer; subtract 1 per wrong.
-        percentage = score / (count * 4) * 100
-        result = {  # Each key matches a column in results.txt.
-            'date': datetime.now().isoformat(timespec='seconds'),
-            'student_id': student_id, 'category': category,
-            'correct': correct, 'wrong': wrong, 'skipped': skipped,
-            'score': score, 'maximum': count * 4,
-            'percentage': f'{percentage:.2f}'
-        }
-        print(f'\nRESULT: {student["name"]} ({student_id}) | {category}')
+        score, maximum = correct * 4 - wrong, count * 4; percentage = score / maximum * 100
+        result = {'date': datetime.now().isoformat(timespec='seconds'),
+                  'student_id': sid, 'category': category, 'correct': correct,
+                  'wrong': wrong, 'skipped': skipped, 'score': score,
+                  'maximum': maximum, 'percentage': f'{percentage:.2f}'}
+        print(f'\nRESULT: {student["name"]} ({sid}) | {category}')
         print(f'Correct: {correct} | Wrong: {wrong} | Skipped: {skipped}')
-        print(f'Score: {score}/{count * 4} | Percentage: {percentage:.2f}%')
+        print(f'Score: {score}/{maximum} | Percentage: {percentage:.2f}%')
+        print('\nANSWER REVIEW')
         for number, (question, answer) in enumerate(review, 1):
-            print(f'{number}. Your answer: {answer}; correct: {question["answer"]}')
+            chosen = 'Skipped' if answer == 'S' else answer
+            print(f'{number}. Your answer: {chosen}; correct answer: {question["answer"]}')
         try:
             append_record('results.txt', RESULT_FIELDS, result)
             print('Result saved to results.txt.')
         except (OSError, ValueError, csv.Error) as error:
             print(f'Result displayed but NOT saved: {error}')
-
     def summary(self):
-        student_id = ask('Student ID for result history: ').upper()
-        rows = read_records('results.txt', RESULT_FIELDS)
-        results = []
-        for row in rows:
-            if row['student_id'] == student_id:
-                results.append(row)
+        sid = normalize_id(ask('Student ID for result history: '))
+        students = read_records('students.txt', STUDENT_FIELDS)
+        if not any(item['student_id'] == sid for item in students):
+            raise ValueError('Student not found.')
+        rows = read_records('results.txt', RESULT_FIELDS); results = [row for row in rows if row['student_id'] == sid]
         if not results:
             print('No saved results for this ID.')
             return
+        print(f'\nRESULT HISTORY FOR {sid}')
         for row in results:
-            print(f'{row["date"]} | {row["category"]} | '
-                  f'{row["score"]}/{row["maximum"]} | {row["percentage"]}%')
-        total = 0
-        for row in results:
-            total += float(row['percentage'])
-        average = total / len(results)  # Each attempt has equal weight.
-        print(f'Attempts: {len(results)} | Average percentage: {average:.2f}%')
-
+            print(f'{row["date"]} | {row["category"]} | {row["score"]}/{row["maximum"]} | '
+                  f'{row["percentage"]}% | Correct: {row["correct"]} | '
+                  f'Wrong: {row["wrong"]} | Skipped: {row["skipped"]}')
+        average = sum(float(row['percentage']) for row in results) / len(results); print(f'Attempts: {len(results)} | Average percentage (equal weight per attempt): {average:.2f}%')
     def run(self):
         while True:
             print('\nONLINE EXAMINATION MANAGEMENT SYSTEM')
@@ -195,8 +241,6 @@ class ExaminationSystem:  # A class groups the exam's related operations.
                     self.add_question()
             except (OSError, ValueError, csv.Error) as error:
                 print(f'Error: {error}')
-
-
 if __name__ == '__main__':
     try:
         ExaminationSystem().run()
